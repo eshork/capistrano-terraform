@@ -1,0 +1,60 @@
+AllCops:
+  TargetRubyVersion: 2.4
+
+Style/FrozenStringLiteralComment:
+  Enabled: true
+
+Style/StringLiterals:
+  EnforcedStyle: single_quotes
+  # Exclude:
+  #   - 'db/schema.rb'
+  #   - 'db/migrate/*.rb'
+
+Style/RedundantReturn:
+  Enabled: false
+Style/HashSyntax:
+  Enabled: false
+Style/UnneededPercentQ:
+  Enabled: false
+Style/GuardClause:
+  Enabled: false
+Style/IfUnlessModifier:
+  Enabled: false
+Style/UnlessElse:
+  Enabled: false
+Style/SymbolArray:
+  Enabled: false
+Style/Documentation:
+  Enabled: false
+
+Style/TrailingCommaInArrayLiteral:
+  EnforcedStyleForMultiline: comma
+
+
+Layout/EmptyLinesAroundBlockBody:
+  Enabled: false
+Layout/SpaceBeforeBlockBraces:
+  Enabled: false
+Layout/SpaceInsideBlockBraces:
+  Enabled: false
+Layout/EmptyLinesAroundModuleBody:
+  Enabled: false
+Layout/EmptyLinesAroundClassBody:
+  Enabled: false
+Layout/EmptyLines:
+  Enabled: false
+
+Metrics/PerceivedComplexity:
+  Enabled: false
+Metrics/CyclomaticComplexity:
+  Enabled: false
+Metrics/BlockLength:
+  Enabled: false
+Metrics/AbcSize:
+  Enabled: false
+Metrics/LineLength:
+  Enabled: false
+  Max: 160
+
+Bundler/OrderedGems:
+  Enabled: false
