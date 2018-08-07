@@ -1,6 +1,6 @@
 # capistrano-terraform
 
-Run Terraform tasks as part of your Capistrano v3 deployments.
+Run Terraform tasks as part of your Capistrano v3 deployments; or just plain use Capistrano v3 to run your Terraform, even if you don't deploy your code with Capistrano.
 
 ```sh
 cap production terraform:deploy # run all registered terraform deployment tasks
@@ -8,15 +8,21 @@ cap production terraform:deploy # run all registered terraform deployment tasks
 
 This plugin also hooks into the default `cap <environment> deploy` flow as a build action. See [Usage](#usage) for more details.
 
+Hence this also works:
+```sh
+cap production deploy # run all app deployment tasks, and terraform is going to run in there somewhere based on your configs
+```
 
+
+----
 
 ## Installation
 
 Add these lines to your application's Gemfile:
 
 ```ruby
-gem 'capistrano', '~> 3.11'
-gem 'capistrano-terraform', '~> 1.0'
+gem 'capistrano', '~> 3.11' # capistrano at least version 3.11
+gem 'capistrano-terraform', '~> 1.0' # the meaty bits of this plugin - 1.X to ensure you always have the best available
 ```
 
 And then execute:
@@ -31,95 +37,131 @@ Or install it yourself as:
 $ gem install capistrano-terraform
 ```
 
+----
+
 ## Usage
 
-#### Require in Capfile:
+### Configure your project
 
+#### Require in Capfile:
 ```ruby
 require 'capistrano/terraform'
 ```
 
-# END OF FILE
-
-----
-
-#### Optionally define a docker_build host:
-
+#### Optionally define a Terraform host in deploy.rb or the appropriate deploy/stage.rb:
 ```ruby
-role :docker_build,  %w{localhost} # role syntax, making localhost the build agent
-# or...
-server 'my.build.server', roles: %w{docker_build} # server syntax, declaring a remote server
+role :terraform,  %w{localhost} # role syntax, this one making localhost the terraform agent
+# --  or... --
+server 'my.build.server', roles: %w{terraform} # server syntax, declaring a remote server
 ```
 
-If no `:docker_build` host is defined, the docker image will be built directly from the current working project directory. A maximum of one `:docker_build` host can be defined.
+If no `:terraform` host/role is defined, all Terraform actions will be ran directly from the host currently running `cap` according to the contents of the current working project directory (some use-cases make this desirable, for example some automated CI/CD pipelines work better this way). A maximum of one `:terraform` host can be defined.
 
-#### Run a deploy:
+> **Note**: Setting the `:terraform` host/role to `localhost` is *not* the same as leaving it undefined (or set to nil). If the `:terraform` role is defined, the full code checkout process is expected to take place prior to terraform actions.
 
-The plugin automatically hooks the [Capistrano deploy flow](https://capistranorb.com/documentation/getting-started/flow/) after `deploy:published` (ie, you can run `cap <environment> deploy`).
+> _Note: There is currently no embedded mechanism to ensure the declared terraform host/role (or the localhost if none defined) has the necessary permissions to perform the desired terraform actions against the IAAS service provider. It's entirely up to you to preemptively set up any necessary AWS keys, SSH keys, environment variables, etc, to enable the worker to perform the desired terraform actions. For AWS, I've found it easiest to simply set up the aws-cli environment variables/tokens on the host prior to running `cap`. Discussions/proposals around this are welcome as github issues._
 
-To opt-out of the default deploy hook, add this line to your `config/deploy.rb` or to a specific `config/deploy/<stage>.rb` file:
+#### Optionally define the Terraform root directory:
+```ruby
+set :terraform_root, "infra"
+```
+This is the sub-directory from which all `capistrano/terraform` related files/references will be evaluated from. If left undefined, it will be assumed to be the project root directory (ie: where `Capfile` is defined)
+
+#### Declare global Terraform variables, variable files, etc
 
 ```ruby
-set :dockerbuild_deployhook, false
+append :terraform_var_file, 'common.tfvars'
 ```
 
-You can also run tasks in isolation. For example:
+#### Declare your Terraform project directories and their specific configurations:
+The minimum terraform step definition includes a name. The path (relative to `:terraform_root`) is actually optional. For example:
+```ruby
+terraform :my_terraform_action, path: 'directory/path'
+```
 
-- `cap development docker:build`
-- `cap development docker:push`
-- `cap test docker:build_push`
+If no `:path` option is provided, the `:terraform_root` is the assumed directory.
 
-Run `cap -T docker:` for details
+No checking is performed to ensure that declared terraform project directories are unique by path, only the first parameter for the `terraform` DSL method (ie, the name) is used to determine uniqueness.
 
-*Be aware that `docker:build` tasks ran in isolation currently only generate the `:latest` and `:release-<timestamp>` docker image tags.*
+All future references to the same terraform action (by name) are additive. This allows you to declare basic Terraform options within the `deploy.rb` config file, and then add/replace options specific to a particular deployment stage within that stage specific `deploy/stagename.rb` config file.
+
+This plugin automatically hooks the normal [Capistrano deploy flow](https://capistranorb.com/documentation/getting-started/flow/) around the _publish_ stage. The default timing is to run terraforms _before_ `deploy:publishing`. However, through a configuration option, terraforms can be selectively performed _after_ `deploy:published` instead.
+
+To select the after publish timing, simply add the `after_publish: true` option setting to individual `terraform` declaration:
+```ruby
+terraform :my_terraform_action, path: 'directory/path', after_publish: true
+```
+
+To opt-out of the deploy flow for all of `capistrano/terraform`, add this line to your `config/deploy.rb` or to a specific `config/deploy/<stage>.rb` file:
+```ruby
+set :terraform_deploy, false
+```
+
+To opt-out of the deploy flow for an individual terraform declaration, simply add `deploy: false` to the declaration options:
+```ruby
+terraform :my_terraform, path: 'directory/path', deploy: false
+```
+Individually excluding a terraform from deploys via `deploy: false` also removes it from the `cap <stage> terraform:deploy` flow.
+
+Any terraform actions/project-directories that are excluded from the deploy flow are still available to run individually via `cap terraform:my_terraform:deploy` (or their related tasks).
+
+
+### Run a deploy:
+
+For a normal full deploy:
+```ruby
+cap <stage> deploy # the default hooks will run terraform actions at the appropriate times
+```
+
+For independent terraform runs:
+```ruby
+cap <stage> terraform:deploy # runs both the before and after publish tasks, hooks in that order, without attempting to publishing code -- if you're running this within a CI pipeline (like Circle or CodeShip) this is probably what you want for simple terraform-first style projects
+```
+
+#### Getting a little more granular...
+
+You should also notice there are a number of granular cap tasks automatically defined around your terraform projects/directories, allowing you to run only what you want, when you want.
+
+> Beware: All granular `cap <stage> terraform:X` tasks will still honor the `:terraform` server role, if one is defined. Something to be aware of...
+
+For example, to selectively run before and after publish deploy stages (without involving the code/app deploy bits):
+- `cap <stage> terraform:deploy_before`
+- `cap <stage> terraform:deploy_after`
+
+Additionally, every `terraform` declaration within the cap deploy configs generates a number of individually addressable cap tasks that can be ran independently:
+- `cap <stage> terraform:<name>:init` # just terraform init
+- `cap <stage> terraform:<name>:plan` # just terraform plan
+- `cap <stage> terraform:<name>:apply` # just terraform apply
+- `cap <stage> terraform:<name>:deploy` # terraform init -> plan -> apply
+- ???
+- `cap <stage> terraform:<name>:destroy` # just terraform apply
+- `cap <stage> terraform:<name>:clean`   # delete any left over plan files and cleans up the .terraform temporary directory
+
+
+To view all the cap tasks (and their descriptions) that are readily runnable for your project, based on the current config files, run `cap -T` to generate the full list.
+
+
 
 ### Configurable options:
 
-```ruby
-set :docker_build_image -> { fetch(:application) } # (required) name of the image
-set :docker_build_opts, nil                        # additional `docker build` args; default is none; (ex: '--pull --no-cache --force-rm')
-set :docker_build_custom_tag, nil                  # custom tag name for this build, if any
-set :docker_build_image_latest_tag?, true          # generates a 'latest' tag when true
-set :docker_build_image_release_tag?, true         # generates a release tag when true
-set :docker_build_image_revision_tag?, true        # generates a scm revision tag when true
-set :docker_build_image_shortrev_tag?, true        # generates a short-form scm revision tag when true
-set :docker_repo_url, nil                          # name/url of remote docker image repository for push
-set :docker_build_context, '.'                     # context passed to `docker build` (from :build_dir)
-set :dockerfile, 'Dockerfile'                      # name of Dockerfile to use for build
-set :docker_cmd, 'docker'                          # name/path to `docker` command on build host
-set :build_dir, '.'                                # directory within source repository to run builds from on remote build hosts
-set :docker_build_promote_image, nil               # repository/image:tag to promote instead of building a new image
-set :dockerbuild_deployhook, true                  # set false to skip default deploy hook; default is true
-set :dockerbuild_trim_release_roles, true          # set false to prevent no_release from being auto-added to all non docker_build servers
-```
+Global
 
-### Created docker image tags
-
-By default the `docker:build` task creates several image tags on the build host upon completion, all pointing to the same final image. Unless otherwise altered, all created tags are also pushed up to the docker image repository during the `docker:push` task. You may not want your repository (or build host) filled with a ton of tags, so this gem offers a few ways to control that sprawl.
-
-You can selectively turn off remotely pushed tags by setting these to `false`, as desired:
-
-- `:docker_build_image_latest_tag?`
-- `:docker_build_image_release_tag?`
-- `:docker_build_image_revision_tag?`
-- `:docker_build_image_shortrev_tag?`
-
-`:docker_build_custom_tag` is optional; if you don't want a custom tag created, don't set one.
+terraform DSL method
 
 
-### Deployment to docker-compose, Docker Swarm, Kubernetes, Marathon, etc
-The primary goal of this gem is currently to provide tasks for Docker image creation and repository push/transfer. However, some deployment tasks are also included, should you decide to use them. Each deploy strategy needs to be specifically enabled by a separate `requires` statement within your Capfile.
 
-Refer to the specific deployment documentation for details:
 
-- [Deploying with Docker Compose](README-deploy-compose.md)
-- [Deploying with Docker Swarm](README-deploy-swarm.md)
+
+
+
+
+
 
 ## Why?
 
 Because.
 
-There are at least a dozen other Capistrano + Docker gems out there, but none seemed to match my preferred docker philosophy: Docker images should be built once and then promoted up to higher environments as they pass acceptance tests. This gem aims to provide that type of workflow.
+One day I literally put "`capistrano terraform`" into Google and surprisingly didn't find any projects that already directly addressed running Terraform from Capistrano. So here we are.
 
 ## Development
 
@@ -129,10 +171,9 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/eshork/capistrano_dockerbuild
+Bug reports and pull requests are welcome on GitHub at https://github.com/eshork/capistrano-terraform
 
 
 ## License
 
 The gem is available as open source under the terms of the [MIT License](http://opensource.org/licenses/MIT).
-

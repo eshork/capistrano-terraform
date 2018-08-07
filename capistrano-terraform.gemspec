@@ -6,11 +6,12 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |spec|
   spec.name          = 'capistrano-terraform'
-  spec.version       = '1.0.0'
+  spec.version       = '0.1.0'
   spec.authors       = ['Eric Shorkey']
   spec.email         = ['eric.shorkey@gmail.com']
   spec.summary       = 'Terraform plugin for Capistrano'
-  spec.description   = 'Run Terraform tasks as part of your Capistrano v3 deployments.' \
+  spec.description   = 'Run Terraform tasks as part of your Capistrano v3 deployments,' \
+                       ' or just simply use Capistrano to manage your Terraform.' \
                        ' Multi-stage -- run your Terraform from a pre or post release hook (or a little of both).' \
                        ' Runs directly from localhost or a remote build/deploy host.'
   spec.homepage      = 'https://github.com/eshork/capistrano-terraform'
